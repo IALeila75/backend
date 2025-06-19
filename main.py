@@ -60,7 +60,7 @@ def build_faiss_index(chunks: list[str]):
         index.add(vectors)
         return index
     except Exception as e:
-        logging.error(f"❌ Erreur création index FAISS : {e}")
+        logging.error(f" Erreur création index FAISS : {e}")
         raise
 
 @app.post("/upload")

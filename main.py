@@ -9,13 +9,12 @@ from pypdf import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
 import faiss
+import re
 
 # ─── Configuration du logging ────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO)
 
-# ─── App FastAPI ─────────────────────────────────────────────────────────────
 app = FastAPI()
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,25 +22,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ─── Constantes ──────────────────────────────────────────────────────────────
 BASE_DIR = "./vector_db"
 os.makedirs(BASE_DIR, exist_ok=True)
 
-# ─── Modèle QA instruct ──────────────────────────────────────────────────────
-instruct_tokenizer = AutoTokenizer.from_pretrained("declare-lab/flan-alpaca-base")
-instruct_model = AutoModelForSeq2SeqLM.from_pretrained("declare-lab/flan-alpaca-base")
+# ─── Modèle instruct QA ───────────────────────────────────────────────────────
+try:
+    instruct_tokenizer = AutoTokenizer.from_pretrained("declare-lab/flan-alpaca-base")
+    instruct_model = AutoModelForSeq2SeqLM.from_pretrained("declare-lab/flan-alpaca-base")
+    logging.info(" Modèle instruct chargé.")
+except Exception as e:
+    logging.error(f" Erreur de chargement modèle instruct : {e}")
+    raise
 
-# ─── Lazy loading pour SentenceTransformer ───────────────────────────────────
+# ─── Lazy loading du modèle embeddings ────────────────────────────────────────
 _embed_model = None
 def get_embed_model():
     global _embed_model
     if _embed_model is None:
         from sentence_transformers import SentenceTransformer
+        logging.info(" Chargement du modèle paraphrase-MiniLM-L3-v2...")
         _embed_model = SentenceTransformer("paraphrase-MiniLM-L3-v2")
     return _embed_model
-
-# ─── Fonctions utilitaires ───────────────────────────────────────────────────
-import re
 
 def clean_text(text):
     text = re.sub(r'-\n', '', text)
@@ -51,14 +52,17 @@ def clean_text(text):
     return text.strip()
 
 def build_faiss_index(chunks: list[str]):
-    model = get_embed_model()
-    dim = model.get_sentence_embedding_dimension()
-    index = faiss.IndexFlatL2(dim)
-    vectors = model.encode(chunks, show_progress_bar=False)
-    index.add(vectors)
-    return index
+    try:
+        model = get_embed_model()
+        dim = model.get_sentence_embedding_dimension()
+        index = faiss.IndexFlatL2(dim)
+        vectors = model.encode(chunks, show_progress_bar=False)
+        index.add(vectors)
+        return index
+    except Exception as e:
+        logging.error(f"❌ Erreur création index FAISS : {e}")
+        raise
 
-# ─── Endpoint upload PDF ─────────────────────────────────────────────────────
 @app.post("/upload")
 async def upload_pdf(file: UploadFile = File(...)):
     try:
@@ -68,7 +72,9 @@ async def upload_pdf(file: UploadFile = File(...)):
         cleaned_text = clean_text(text)
 
         splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
-        chunks = splitter.split_text(text)
+        chunks = splitter.split_text(cleaned_text)
+
+        logging.info(f" Fichier reçu : {file.filename}, {len(chunks)} chunks générés.")
 
         faiss_index = build_faiss_index(chunks)
 
@@ -81,23 +87,20 @@ async def upload_pdf(file: UploadFile = File(...)):
         with open(os.path.join(persist_path, "index.pkl"), "wb") as f:
             pickle.dump(faiss_index, f)
 
-        logging.info(f"Document traité et indexé : {doc_id}")
+        logging.info(f" Document indexé : {doc_id}")
         return {"doc_id": doc_id}
+
     except Exception as e:
-        logging.error(f"Erreur lors de l'upload : {e}")
+        logging.error(f" Erreur upload_pdf : {e}")
         raise HTTPException(status_code=500, detail="Erreur lors du traitement du fichier PDF.")
 
-# ─── Endpoint de question ────────────────────────────────────────────────────
 @app.get("/query")
 async def query(doc_id: str, q: str = Query(..., description="Votre question")):
-    if not q:
-        raise HTTPException(status_code=400, detail="Le paramètre `q` est obligatoire.")
-
-    persist_dir = os.path.join(BASE_DIR, doc_id)
-    if not os.path.isdir(persist_dir):
-        raise HTTPException(status_code=404, detail="Document introuvable.")
-
     try:
+        persist_dir = os.path.join(BASE_DIR, doc_id)
+        if not os.path.isdir(persist_dir):
+            raise HTTPException(status_code=404, detail="Document introuvable.")
+
         with open(os.path.join(persist_dir, "chunks.pkl"), "rb") as f:
             chunks = pickle.load(f)
         with open(os.path.join(persist_dir, "index.pkl"), "rb") as f:
@@ -115,9 +118,11 @@ async def query(doc_id: str, q: str = Query(..., description="Votre question")):
         outputs = instruct_model.generate(**inputs, max_new_tokens=200)
         answer = instruct_tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-        if not answer.strip():
-            return {"answer": "❌ Réponse vide ou incohérente."}
-        return {"answer": answer.strip()}
+        logging.info(f" Réponse générée pour doc_id={doc_id}")
+        return {"answer": answer.strip() or "❌ Réponse vide."}
+
+    except HTTPException as he:
+        raise he
     except Exception as e:
-        logging.error(f"Erreur QA instruct : {e}")
-        raise HTTPException(status_code=500, detail=f"Erreur avec modèle instruct : {e}")
+        logging.error(f" Erreur query : {e}")
+        raise HTTPException(status_code=500, detail=f"Erreur serveur : {e}")

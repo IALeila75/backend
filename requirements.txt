@@ -1,8 +1,5 @@
 fastapi
 uvicorn
-transformers
-sentence-transformers
-langchain
-faiss-cpu
+openai
 pypdf
-python-multipart
+python-dotenv

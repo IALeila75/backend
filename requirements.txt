@@ -1,10 +1,8 @@
 fastapi
-uvicorn[standard]
-python-dotenv
-pypdf
-langchain-community
-chromadb
-openai
-tiktoken
-faiss-cpu
+uvicorn
+transformers
 sentence-transformers
+langchain
+faiss-cpu
+pypdf
+python-multipart

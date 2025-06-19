@@ -56,16 +56,18 @@ async def upload_pdf(file: UploadFile = File(...)):
 async def query(doc_id: str, q: str = Query(...)):
     try:
         if doc_id not in document_store:
+            logging.warning(f"❌ doc_id introuvable : {doc_id}")
             raise HTTPException(status_code=404, detail="Document introuvable.")
 
         chunks = document_store[doc_id]
-        context = "\n\n".join(chunks[:5])  # prend les 5 premiers morceaux
+        context = "\n\n".join(chunks[:3])  # réduit à 3 morceaux
 
         messages = [
-            {"role": "system", "content": "Tu es un assistant expert qui répond à partir d'un document PDF."},
+            {"role": "system", "content": "Tu es un assistant qui répond à partir d'un document PDF."},
             {"role": "user", "content": f"Document :\n{context}\n\nQuestion : {q}"}
         ]
 
+        logging.info(f" Question reçue : {q}")
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=messages,
@@ -73,9 +75,19 @@ async def query(doc_id: str, q: str = Query(...)):
             max_tokens=300
         )
         answer = response.choices[0].message["content"]
-        logging.info(f" Réponse générée pour doc {doc_id}")
+        logging.info(f" Réponse : {answer[:80]}...")
         return {"answer": answer}
 
+    except openai.error.InvalidRequestError as e:
+        logging.error(f" OpenAI error: {e}")
+        raise HTTPException(status_code=400, detail="Erreur OpenAI : prompt trop long ou invalide.")
     except Exception as e:
-        logging.error(f" Erreur query : {e}")
-        raise HTTPException(status_code=500, detail="Erreur lors de la génération de réponse.")
+        logging.error(f" Erreur serveur : {e}")
+        raise HTTPException(status_code=500, detail="Erreur interne.")
+
+
+
+
+
+
+

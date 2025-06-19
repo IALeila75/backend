@@ -6,5 +6,5 @@ langchain-community
 chromadb
 openai
 tiktoken
-
+faiss-cpu
 sentence-transformers

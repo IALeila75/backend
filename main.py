@@ -29,7 +29,7 @@ BASE_DIR = "./vector_db"
 os.makedirs(BASE_DIR, exist_ok=True)
 
 # ─── Modèles : embeddings et QA ──────────────────────────────────────────────
-embed_model = SentenceTransformer("all-MiniLM-L6-v2")
+embed_model = SentenceTransformer("all-MiniLM-L3-v2")
 
 qa_pipeline = pipeline(
     "question-answering",

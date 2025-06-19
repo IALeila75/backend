@@ -1,6 +1,7 @@
 fastapi
 uvicorn
-openai
+openai==0.28
+
 pypdf
 python-dotenv
 python-multipart

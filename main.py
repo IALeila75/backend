@@ -56,7 +56,7 @@ async def upload_pdf(file: UploadFile = File(...)):
 async def query(doc_id: str, q: str = Query(...)):
     try:
         if doc_id not in document_store:
-            logging.warning(f"❌ doc_id introuvable : {doc_id}")
+            logging.warning(f" doc_id introuvable : {doc_id}")
             raise HTTPException(status_code=404, detail="Document introuvable.")
 
         chunks = document_store[doc_id]
